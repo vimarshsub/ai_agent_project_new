@@ -33,38 +33,38 @@ class OpenAIDocumentAnalysisTool:
         """Converts PDF pages to a list of base64 encoded image strings. Returns list or error string."""
         base64_images = []
         try:
-            # Check if poppler is installed and accessible by pdf2image
-            # This is a common point of failure if dependencies are missing
-            try:
-                info = pdfinfo_from_path(pdf_path, poppler_path=None) # Use system poppler
-                actual_max_pages = min(info["Pages"], max_pages)
-            except Exception as pe:
-                # If pdfinfo fails, it might indicate poppler issues or bad PDF
-                print(f"Could not get PDF info (possibly poppler issue or invalid PDF): {pe}")
-                # Fallback to trying to convert without knowing total pages, up to max_pages
-                actual_max_pages = max_pages 
-                # It might be better to return an error here if pdfinfo fails, as conversion will likely also fail.
-                # return f"Error: Could not process PDF info for {os.path.basename(pdf_path)}. Ensure poppler-utils is installed and PDF is valid."
-
-            if actual_max_pages == 0:
-                return f"Error: PDF file {os.path.basename(pdf_path)} appears to have 0 pages or could not be read."
-
-            images = convert_from_path(pdf_path, first_page=1, last_page=actual_max_pages, poppler_path=None)
+            # Create a temporary directory for storing images if needed
+            temp_dir = os.path.join(os.path.dirname(pdf_path), "temp_images")
+            os.makedirs(temp_dir, exist_ok=True)
             
+            # Get the base name of the PDF file without extension
+            base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+            base_name = base_name.replace(" ", "_")
+            
+            # Convert PDF to images
+            images = convert_from_path(pdf_path, dpi=300)
+            
+            # Limit to max_pages
+            images = images[:max_pages]
+            
+            if not images:
+                return f"Error: PDF file {os.path.basename(pdf_path)} appears to have 0 pages or could not be read."
+            
+            # Convert images to base64
             for i, image in enumerate(images):
                 buffered = BytesIO()
                 image.save(buffered, format="PNG")
                 img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 base64_images.append(img_str)
-                print(f"Converted page {i+1} of PDF 	'{os.path.basename(pdf_path)}	' to image.")
+                print(f"Converted page {i+1} of PDF '{os.path.basename(pdf_path)}' to image.")
             
             if not base64_images:
-                 return f"Error: Could not convert any pages from PDF: {os.path.basename(pdf_path)}. The PDF might be empty, corrupted, or password-protected."
+                return f"Error: Could not convert any pages from PDF: {os.path.basename(pdf_path)}. The PDF might be empty, corrupted, or password-protected."
+            
             return base64_images
 
         except Exception as e:
-            # Catching specific pdf2image errors could be more granular
-            error_msg = f"Error converting PDF 	'{os.path.basename(pdf_path)}	' to images: {str(e)}. Check if poppler-utils is installed and the PDF is valid."
+            error_msg = f"Error converting PDF '{os.path.basename(pdf_path)}' to images: {str(e)}"
             print(error_msg)
             return error_msg
 
@@ -81,7 +81,7 @@ class OpenAIDocumentAnalysisTool:
         if not os.path.exists(pdf_path):
             return f"Error: PDF file not found at path: {pdf_path}"
         if not pdf_path.lower().endswith(".pdf"):
-            return f"Error: File 	'{os.path.basename(pdf_path)}	' is not a PDF. Only PDF analysis is supported."
+            return f"Error: File '{os.path.basename(pdf_path)}' is not a PDF. Only PDF analysis is supported."
 
         print(f"Starting analysis for PDF: {os.path.basename(pdf_path)}, type: {analysis_type}, max pages: {max_pages_to_analyze}")
         conversion_result = self._convert_pdf_to_base64_images(pdf_path, max_pages=max_pages_to_analyze)
@@ -104,7 +104,7 @@ class OpenAIDocumentAnalysisTool:
         elif analysis_type == "sentiment":
             prompt_text = "Analyze the overall sentiment of this document based on the provided pages. Is it positive, negative, or neutral? Explain briefly."
         else:
-            prompt_text = f"Analyze the content of this document based on the provided pages. The user requested analysis type: 	'{analysis_type}	'."
+            prompt_text = f"Analyze the content of this document based on the provided pages. The user requested analysis type: '{analysis_type}'."
 
         messages = [
             {
@@ -126,7 +126,7 @@ class OpenAIDocumentAnalysisTool:
             )
         
         try:
-            print(f"Sending {len(base64_images)} image(s) from 	'{os.path.basename(pdf_path)}	' to OpenAI for 	'{analysis_type}	' analysis...")
+            print(f"Sending {len(base64_images)} image(s) from '{os.path.basename(pdf_path)}' to OpenAI for '{analysis_type}' analysis...")
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -137,7 +137,7 @@ class OpenAIDocumentAnalysisTool:
             print(f"Analysis received from OpenAI for {os.path.basename(pdf_path)}.")
             return analysis_result
         except Exception as e:
-            error_msg = f"Error during OpenAI API call for 	'{os.path.basename(pdf_path)}	': {str(e)}"
+            error_msg = f"Error during OpenAI API call for '{os.path.basename(pdf_path)}': {str(e)}"
             print(error_msg)
             return error_msg
 

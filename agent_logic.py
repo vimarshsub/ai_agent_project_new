@@ -10,6 +10,8 @@ from langchain_core.messages import HumanMessage, AIMessage
 # Import custom tools
 from airtable_tool import AirtableTool
 from openai_analysis_tool import OpenAIDocumentAnalysisTool
+from google_calendar_tool import GoogleCalendarTool
+from date_utils_tool import DateUtilsTool
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +24,8 @@ if not OPENAI_API_KEY:
 # Initialize custom tools
 airtable_handler = AirtableTool()
 openai_analyzer = OpenAIDocumentAnalysisTool()
+calendar_tool = GoogleCalendarTool()
+date_utils = DateUtilsTool()
 
 # --- Define Pydantic models for tool inputs ---
 class SearchAnnouncementsInput(BaseModel):
@@ -37,6 +41,38 @@ class AnalyzeDocumentInput(BaseModel):
     analysis_type: str = Field(default="summarize", description="Type of analysis: 'summarize', 'extract_action_items', 'sentiment', or 'custom'.")
     custom_prompt: str = Field(default=None, description="A custom prompt for the analysis, used if analysis_type is 'custom' or to override defaults.")
     max_pages_to_analyze: int = Field(default=5, description="Maximum number of pages from the PDF to analyze.")
+
+# New Pydantic models for calendar tools
+class SearchEventsInput(BaseModel):
+    query: str = Field(default=None, description="Search term to find events.")
+    start_date: str = Field(default=None, description="Start date in 'YYYY-MM-DD' format.")
+    end_date: str = Field(default=None, description="End date in 'YYYY-MM-DD' format.")
+    max_results: int = Field(default=10, description="Maximum number of results to return.")
+
+class CreateEventInput(BaseModel):
+    title: str = Field(description="Title of the event.")
+    start_datetime: str = Field(description="Start date and time in ISO format (YYYY-MM-DDTHH:MM:SS).")
+    end_datetime: str = Field(default=None, description="End date and time in ISO format. If not provided, event will be 1 hour long.")
+    description: str = Field(default=None, description="Description of the event.")
+    location: str = Field(default=None, description="Location of the event.")
+    attendees: list = Field(default=None, description="List of email addresses of attendees.")
+    reminder_minutes: int = Field(default=None, description="Reminder time in minutes before the event.")
+
+class CreateReminderInput(BaseModel):
+    title: str = Field(description="Title of the reminder.")
+    due_date: str = Field(description="Due date and time in ISO format (YYYY-MM-DDTHH:MM:SS).")
+    description: str = Field(default=None, description="Description of the reminder.")
+
+class DeleteEventInput(BaseModel):
+    event_id: str = Field(description="ID of the event to delete.")
+
+# New Pydantic models for date utils
+class GetDateRangeInput(BaseModel):
+    period: str = Field(description="Time period ('today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'next_month', 'this_year', 'last_year').")
+
+class GetRelativeDateInput(BaseModel):
+    reference: str = Field(description="Reference point ('today', 'yesterday', 'start_of_week', 'end_of_week', 'start_of_month', 'end_of_month').")
+    offset_days: int = Field(default=0, description="Number of days to offset (can be negative).")
 
 # --- Wrapper functions for LangChain tools with enhanced error handling ---
 def get_all_announcements_wrapper():
@@ -88,7 +124,7 @@ def get_and_download_attachment_wrapper(announcement_id: str = None, search_term
         # This case should ideally be covered by the first check for error string
         return "Error: No attachment found matching the criteria or an unexpected error occurred retrieving attachment info."
 
-def find_announcement_by_title_wrapper(title: str):
+def find_announcement_by_title_wrapper(search_text: str):
     """Finds an announcement by its title and returns the record or None."""
     if not airtable_handler.airtable:
         return "Error: Airtable connection is not available."
@@ -98,16 +134,47 @@ def find_announcement_by_title_wrapper(title: str):
         return all_announcements
     
     for announcement in all_announcements:
-        if announcement.get("Title", "").lower() == title.lower():
+        if announcement.get("Title", "").lower() == search_text.lower():
             return announcement
     
-    return f"Error: Could not find an announcement with title '{title}'."
+    return f"Error: Could not find an announcement with title '{search_text}'."
 
 def analyze_document_wrapper(pdf_path: str, analysis_type: str = "summarize", custom_prompt: str = None, max_pages_to_analyze: int = 5):
     """Analyzes a PDF document. Returns analysis string or error string."""
     if not openai_analyzer.client:
         return "Error: OpenAI client is not available for document analysis."
     return openai_analyzer.analyze_document_content(pdf_path, analysis_type, custom_prompt, max_pages_to_analyze)
+
+# --- Wrapper functions for Google Calendar tools ---
+def search_events_wrapper(query: str = None, start_date: str = None, end_date: str = None, max_results: int = 10):
+    """Searches for events in Google Calendar. Returns list of events or error message."""
+    return calendar_tool.search_events(query, start_date, end_date, max_results)
+
+def create_event_wrapper(title: str, start_datetime: str, end_datetime: str = None, description: str = None, 
+                         location: str = None, attendees: list = None, reminder_minutes: int = None):
+    """Creates a new event in Google Calendar. Returns created event or error message."""
+    return calendar_tool.create_event(title, start_datetime, end_datetime, description, location, attendees, reminder_minutes)
+
+def create_reminder_wrapper(title: str, due_date: str, description: str = None):
+    """Creates a new reminder in Google Calendar. Returns created reminder or error message."""
+    return calendar_tool.create_reminder(title, due_date, description)
+
+def delete_event_wrapper(event_id: str):
+    """Deletes an event from Google Calendar. Returns result of deletion or error message."""
+    return calendar_tool.delete_event(event_id)
+
+# --- Wrapper functions for Date Utils tools ---
+def get_current_date_wrapper():
+    """Gets the current date. Returns date as string."""
+    return date_utils.get_current_date(include_time=True)
+
+def get_date_range_wrapper(period: str):
+    """Gets start and end dates for common time periods. Returns dictionary with date range."""
+    return date_utils.get_date_range(period)
+
+def get_relative_date_wrapper(reference: str, offset_days: int = 0):
+    """Gets a date relative to a reference point with an offset. Returns dictionary with date information."""
+    return date_utils.get_relative_date(reference, offset_days)
 
 # --- Create LangChain Tools ---
 tools = [
@@ -139,6 +206,49 @@ tools = [
         name="AnalyzeDocumentContent",
         description="Analyzes the content of a downloaded PDF document using OpenAI. Requires the local path to the PDF. Analysis types include summarize, extract_action_items, or sentiment. A custom prompt can also be provided. Returns the analysis or an error message.",
         args_schema=AnalyzeDocumentInput
+    ),
+    # Google Calendar Tools
+    StructuredTool.from_function(
+        func=search_events_wrapper,
+        name="SearchCalendarEvents",
+        description="Searches for events in Google Calendar. You can specify a search term, date range, and maximum number of results to return. Returns a list of events or an error message.",
+        args_schema=SearchEventsInput
+    ),
+    StructuredTool.from_function(
+        func=create_event_wrapper,
+        name="CreateCalendarEvent",
+        description="Creates a new event in Google Calendar. You must specify the title and start time. Optionally specify end time, description, location, attendees, and reminder time. Returns the created event or an error message.",
+        args_schema=CreateEventInput
+    ),
+    StructuredTool.from_function(
+        func=create_reminder_wrapper,
+        name="CreateCalendarReminder",
+        description="Creates a new reminder in Google Calendar. You must specify the title and due date. Optionally specify a description. Returns the created reminder or an error message.",
+        args_schema=CreateReminderInput
+    ),
+    StructuredTool.from_function(
+        func=delete_event_wrapper,
+        name="DeleteCalendarEvent",
+        description="Deletes an event from Google Calendar. You must specify the event ID. Returns the result of the deletion or an error message.",
+        args_schema=DeleteEventInput
+    ),
+    # Date Utils Tools
+    Tool(
+        name="GetCurrentDate",
+        func=lambda _: get_current_date_wrapper(),
+        description="Gets the current date and time in ISO format. Useful when you need the current date for creating events or searching date ranges."
+    ),
+    StructuredTool.from_function(
+        func=get_date_range_wrapper,
+        name="GetDateRange",
+        description="Gets start and end dates for common time periods like 'today', 'this_week', 'last_month', etc. Useful for searching events within specific date ranges. Returns a dictionary with formatted date strings.",
+        args_schema=GetDateRangeInput
+    ),
+    StructuredTool.from_function(
+        func=get_relative_date_wrapper,
+        name="GetRelativeDate",
+        description="Gets a date relative to a reference point with an offset in days. For example, 'tomorrow' would be ('today', 1) and 'last Monday' might be ('start_of_week', -7). Returns a dictionary with date information.",
+        args_schema=GetRelativeDateInput
     )
 ]
 
@@ -147,7 +257,7 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
 
 MEMORY_KEY = "chat_history"
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful assistant that can interact with Airtable and analyze documents. You have access to tools for these tasks. If a tool returns an error, inform the user clearly about the error. When a user asks about an attachment after mentioning a specific announcement, use the FindAnnouncementByTitle tool first to get details about that announcement, then use GetAndDownloadAnnouncementAttachment with the search_term parameter set to the announcement title. Always maintain context between conversation turns."),
+    ("system", "You are a helpful assistant that can interact with Airtable, analyze documents, manage Google Calendar, and perform date calculations. You have access to tools for these tasks. If a tool returns an error, inform the user clearly about the error. When a user asks about an attachment after mentioning a specific announcement, use the FindAnnouncementByTitle tool first to get details about that announcement, then use GetAndDownloadAnnouncementAttachment with the search_term parameter set to the announcement title. For calendar-related tasks, help users create, find, and manage their events and reminders effectively. You can also provide date calculations and ranges when users need to know about specific time periods. Always maintain context between conversation turns."),
     MessagesPlaceholder(variable_name=MEMORY_KEY),
     ("user", "{input}"),
     MessagesPlaceholder(variable_name="agent_scratchpad"),
@@ -171,6 +281,8 @@ if __name__ == "__main__":
         "Summarize the latest announcement attachment", # This might fail if no attachments or if Airtable is empty
         "Analyze the document at /tmp/non_existent_document.pdf", # Test analysis with bad path
         "Search for announcements about Q2 results", # Assuming Q2 might exist from previous tests
+        "What's the date range for this month?", # Test date utils
+        "Create a calendar event for tomorrow at 2pm", # Test calendar integration
         # "Find an announcement with the word 'important' and tell me what its attachment says about action items" # More complex query
     ]
 
@@ -197,52 +309,5 @@ if __name__ == "__main__":
             print(error_output)
             raw_chat_history.append(("user", query))
             raw_chat_history.append(("assistant", error_output))
-
-    # Example of a potentially successful multi-turn conversation
-    print("\n--- Multi-turn test (potential success) ---")
-    # Assuming 'sample_test.pdf' was created by openai_analysis_tool.py's __main__ and an announcement links to it.
-    # This is hard to test without a populated Airtable base that the agent can interact with live.
-    # For now, let's simulate a successful download then analysis.
-
-    # Step 1: Try to get a known attachment (if any were successfully added and downloadable)
-    # This requires a known good state in Airtable, which is hard to guarantee in a script.
-    # We will assume the user might ask to summarize a file they know was downloaded.
-
-    # Let's first try to download the 'latest' attachment and see if it works.
-    query1 = "Can you download the attachment from the latest announcement?"
-    print(f"User: {query1}")
-    langchain_hist_q1 = [HumanMessage(content=h[1]) if h[0]=='user' else AIMessage(content=h[1]) for h in raw_chat_history]
-    result1 = agent_executor.invoke({"input": query1, MEMORY_KEY: langchain_hist_q1})
-    output1 = result1.get('output', "Error: No output from agent.")
-    print(f"Agent: {output1}")
-    raw_chat_history.append(("user", query1))
-    raw_chat_history.append(("assistant", output1))
-
-    pdf_path_from_output = None
-    if "Error:" not in output1 and "downloaded successfully to:" in output1.lower():
-        try:
-            # Extract path carefully
-            path_part = output1.split("downloaded successfully to:")[-1].strip()
-            # Further clean if there's trailing text, e.g. periods or agent's own commentary
-            pdf_path_from_output = path_part.split()[0] # Take the first word after the phrase
-            if not os.path.exists(pdf_path_from_output):
-                 print(f"Warning: Agent reported download to {pdf_path_from_output}, but file not found. Path extraction might be imperfect or download failed silently.")
-                 pdf_path_from_output = None # Reset if not found
-            else:
-                print(f"Successfully extracted path: {pdf_path_from_output}")
-        except Exception as e:
-            print(f"Could not reliably extract PDF path from agent output: {e}")
-    
-    if pdf_path_from_output:
-        query2 = f"Great, now please summarize the document you just downloaded at {pdf_path_from_output}"
-        print(f"User: {query2}")
-        langchain_hist_q2 = [HumanMessage(content=h[1]) if h[0]=='user' else AIMessage(content=h[1]) for h in raw_chat_history]
-        result2 = agent_executor.invoke({"input": query2, MEMORY_KEY: langchain_hist_q2})
-        output2 = result2.get('output', "Error: No output from agent.")
-        print(f"Agent: {output2}")
-        raw_chat_history.append(("user", query2))
-        raw_chat_history.append(("assistant", output2))
-    else:
-        print("Skipping follow-up analysis as previous download step might have failed, found no attachment, or path extraction failed.")
 
 
