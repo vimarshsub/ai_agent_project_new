@@ -1,0 +1,26 @@
+name: ai-agent-api
+service:
+  name: api
+  ports:
+    - port: 8000
+      protocol: http
+  routes:
+    - path: /
+      port: 8000
+  env:
+    - name: PORT
+      value: "8000"
+  scaling:
+    min: 1
+    max: 1
+  instance_type: nano
+  regions:
+    - aws-us-east-1
+  deployments:
+    - git:
+        repository: <your-github-repo-url>
+        branch: main
+      build:
+        builder: dockerfile
+        buildCommand: pip install -r requirements.txt
+        runCommand: uvicorn server:app --host 0.0.0.0 --port $PORT 
