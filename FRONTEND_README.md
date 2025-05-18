@@ -12,6 +12,13 @@ The server provides the following RESTful endpoints:
 | `/api/chat/{session_id}` | DELETE | Clear conversation history for a specific session |
 | `/health` | GET | Check server health status |
 
+## Server URL
+
+The AI Agent API is deployed and available at:
+```
+https://ill-roshelle-vimarshsub-962ce670.koyeb.app
+```
+
 ## Session Management
 
 The server handles conversation history using session IDs:
@@ -44,7 +51,7 @@ The `/api/chat` endpoint returns responses in the following JSON format:
 ```javascript
 async function sendMessage(message) {
   try {
-    const response = await fetch('http://localhost:8000/api/chat', {
+    const response = await fetch('https://ill-roshelle-vimarshsub-962ce670.koyeb.app/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -72,7 +79,7 @@ async function sendMessage(message) {
 ```javascript
 async function continueConversation(message, sessionId) {
   try {
-    const response = await fetch('http://localhost:8000/api/chat', {
+    const response = await fetch('https://ill-roshelle-vimarshsub-962ce670.koyeb.app/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -98,7 +105,7 @@ async function continueConversation(message, sessionId) {
 ```javascript
 async function clearConversation(sessionId) {
   try {
-    const response = await fetch(`http://localhost:8000/api/chat/${sessionId}`, {
+    const response = await fetch(`https://ill-roshelle-vimarshsub-962ce670.koyeb.app/api/chat/${sessionId}`, {
       method: 'DELETE'
     });
     
@@ -119,6 +126,9 @@ Here's a simple React component that integrates with the AI Agent:
 ```jsx
 import { useState, useEffect } from 'react';
 
+// API base URL
+const API_URL = 'https://ill-roshelle-vimarshsub-962ce670.koyeb.app';
+
 function ChatInterface() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -136,7 +146,7 @@ function ChatInterface() {
     setLoading(true);
     
     try {
-      const response = await fetch('http://localhost:8000/api/chat', {
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,7 +181,7 @@ function ChatInterface() {
     if (!sessionId) return;
     
     try {
-      await fetch(`http://localhost:8000/api/chat/${sessionId}`, {
+      await fetch(`${API_URL}/api/chat/${sessionId}`, {
         method: 'DELETE'
       });
       
@@ -281,7 +291,7 @@ You can test the API directly using cURL before implementing in your frontend:
 
 ```bash
 curl -X POST \
-  http://localhost:8000/api/chat \
+  https://ill-roshelle-vimarshsub-962ce670.koyeb.app/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello, how can you help me today?"}'
 ```
@@ -291,7 +301,7 @@ curl -X POST \
 ```bash
 # Replace your-session-id-here with the session_id from the previous response
 curl -X POST \
-  http://localhost:8000/api/chat \
+  https://ill-roshelle-vimarshsub-962ce670.koyeb.app/api/chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: your-session-id-here" \
   -d '{"message": "Tell me more about that"}'
@@ -302,11 +312,11 @@ curl -X POST \
 ```bash
 # Replace your-session-id-here with the session_id you want to clear
 curl -X DELETE \
-  http://localhost:8000/api/chat/your-session-id-here
+  https://ill-roshelle-vimarshsub-962ce670.koyeb.app/api/chat/your-session-id-here
 ```
 
 ### Check Server Health
 
 ```bash
-curl http://localhost:8000/health
+curl https://ill-roshelle-vimarshsub-962ce670.koyeb.app/health
 ``` 
